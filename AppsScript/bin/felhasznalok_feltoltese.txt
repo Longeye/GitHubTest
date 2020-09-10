@@ -1,0 +1,426 @@
+//-------------------------------------------------------------
+// Automatikus adatimport G Suit for Education rendszerhez
+//
+// Készítette: Venczel József
+//
+// Debrecen városában, a 2020-ik esztendő szeptember havában
+//
+// Verzió: 200910
+//-------------------------------------------------------------
+
+// Globális változódeklarációk
+//
+// A script alapértelmezés szerint <TESZT> üzemmódban működik.
+// Ez azt jelenti, hogy minden újonnan létrehozott objektum (csoport és felhasználó) neve elé odateszi a teszt változóban tárolt szöveget.
+// (Ennek alapértelmezés szerinti értéke: "teszt".)
+// Szervezeti egységek esetében csak a Diakok és a Pedagogusok szervezeti egységeknél alkalmazza ezt, az alattuk lévőkben nem.
+// Így biztonságosan lehet tesztelni a működését éles, működő környezetben is, mert futtatás esetén nem bántja a létező objektumokat.
+// Ha élesben szeretnéd futtatni, akkor a teszt változó értéke legyen üres string!
+
+var teszt="teszt";  // A tesztelést jelző változó.
+var ev = 2020;  // Annak a tanévnek a kezdőéve, amelyikkel éppen dolgozunk
+var tanev=ev + "-" + String(ev+1);  // A tanévet jelző string előállítása (pl. a szervezeti egységhez)
+var suliDomain = "az.iskola.domain-je";  // Az iskola domain-je, amiben a G Suit regisztrálva lett.
+var diakDomain = "a.tanulok.domain-je";  // A diákokat ebbe a domainbe regisztráljuk.
+var pedSZEnev = "Pedagógusok";  // A pedagógusok szervezeti egységének és csoportjának neve.
+var diakSZEnev = "Diákok";  // A diákok szervezeti egységének és csoportjának neve.
+var vendegSZEnev = "Vendég";  // A vendég tanulók, cserediákok szervezeti egységének neve. Azok kerülnek ide, akiknek nincs osztályfőnöki órája.
+var osztfoSzerepkor = "MEMBER";  // Az osztályfőnököt ilyen szerepkörben adja hozzá az osztály csoportjához. Lehetőségek: #OWN#MANAGER#MEMBER#
+
+// Átalakítja a teljes nevet felhasználónévvé
+function nevkonv(s) {
+  var i = 'ÀÁÂÃÄÅàáâãäåÒÓÔÕÕÖŐòóôõöőÈÉÊËèéêëðÇçÐÌÍÎÏìíîïÙÚÛÜŰùúûüűÑñŠšŸÿýŽž'.split('');
+  var o = 'AAAAAAaaaaaaOOOOOOOooooooEEEEeeeeeCcDIIIIiiiiUUUUUuuuuuNnSsYyyZz'.split('');
+  var map = {};
+  
+  s=s.toLocaleLowerCase('hu-HU');  // A nagybetűket kicsire cseréljük
+  s=s.replace('dr. ', '');  // A felhasználónévbe nem teszünk dr-t
+  while(s.indexOf(' ')>0) { s=s.replace(' ',''); }  // Szóközök eltávolítása a nevekből
+  i.forEach((i, idx) => map[i] = o[idx]);  // Már csak a felhasználónevek "ekezetlenítése" van hátra.
+  return s.replace(/[^A-Za-z0-9]/g, function(ch) { return map[ch] || ch; })
+}
+
+// Diákok beiskolázása
+
+function diakokFeltoltese(){
+
+  // Aktív táblázat lekérése
+  var tablazat = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // A következő két munkalapra igazából csak azért van szükség, mert a pedagógusok és titkársági dolgozók felhasználónevét a KRÉTA-ból vesszük.
+  // Egyébként elég lenne csak a "Tanulók tantárgyai és pedagógus" export is.
+  // Jé! Most vettem észre, hogy Excel-ben max 31 karakteres lehet egy munkalap neve. Hát ezért hiányzik az "ai"! ;o)
+  
+  // Az "Alkalmazottak lakcímmel" elnevezésű munkalap lekérése.
+  // Erre csak a pedagógusok vezeték és keresztnevének szétválasztásához van szükség.
+  // Tanulók esetében ez egyszerű, mert az első szóközig tartó rész a vezetéknév, ami marad a keresztnév.
+  // Tanároknál viszont, értelemszerűen nem mindenkinél van így.
+  tablazat.setActiveSheet(tablazat.getSheetByName("Alkalmazottak lakcímmel"));
+  var alkalmazottakLakcimmelRange = tablazat.getActiveSheet().getRange(1, 1, tablazat.getActiveSheet().getMaxRows(), tablazat.getActiveSheet().getMaxColumns());
+  var alkalmazottakLakcimmel = alkalmazottakLakcimmelRange.getValues();
+
+  // A KRÉTA felhasználónevek ebben az exportban vannak benne
+  tablazat.setActiveSheet(tablazat.getSheetByName("Alkalmazottak"));
+  var alkalmazottakRange = tablazat.getActiveSheet().getRange(1, 1, tablazat.getActiveSheet().getMaxRows(), tablazat.getActiveSheet().getMaxColumns());
+  var alkalmazottak = alkalmazottakRange.getValues();
+
+  // Mivel nem a tanár nevéből állítjuk elő a felhasználónevet, ezért külön tömbökben tárolom el őket,
+  // hogy egyszerűen kereshetőek legyenek az indexOf() metódussal.
+  
+  var tanarNevek = [];
+  var tanarEmailek = [];
+  var tanarVezNevek = [];
+  var tanarKerNevek = [];
+  
+  for(var sor=1; sor<alkalmazottak.length; sor++){
+    if(alkalmazottak[sor][5]){
+      tanarNevek.push(alkalmazottak[sor][0]);
+      tanarEmailek.push(teszt+alkalmazottak[sor][5]+"@"+suliDomain);
+      tanarVezNevek.push(alkalmazottakLakcimmel[sor][1]);
+      tanarKerNevek.push(alkalmazottakLakcimmel[sor][2]);
+    }
+  }
+  
+  // Elérkeztünk a lényeghez. Ebben az exportban már minden benne van, amire szükségünk lesz.
+  // Később, ha továbbfejlesztjük a script-et az OM azonosítóknak nagy hasznát vesszük majd.
+  // Most csak szépen végiggyalogolunk rajta.
+  tablazat.setActiveSheet(tablazat.getSheetByName("Tanulók tantárgyai és pedagógus"));
+  var tanulokRange = tablazat.getActiveSheet().getRange(1, 1, tablazat.getActiveSheet().getMaxRows(), tablazat.getActiveSheet().getMaxColumns()+3);
+  var tanulok = tanulokRange.getValues();
+
+  // Alapvető szervezeti egységek meglétének ellenőrzése
+  
+  // Létrehozzuk a Diákok szervezeti egységét
+  try{
+    var diakokSZE = {
+      name: teszt+diakSZEnev,
+      description: "A diákokat tartalmazó szervezeti egység.",
+      parentOrgUnitPath: "/",
+    }
+    var diakokSZE = AdminDirectory.Orgunits.insert(diakokSZE,'my_customer');
+  }catch(e){  }
+  
+  // A diákok szervezeti egységén belül lévő, a tanév osztályait, valamint a vendégtanulókat tartalmazó szervezeti egység létrehozása
+  try{
+    var tanevSZEAdatai = {
+      name: tanev,
+      description: "A "+tanev+" tanév osztályai.",
+      parentOrgUnitPath: "/"+teszt+diakSZEnev,
+    }
+    var tanevSZE = AdminDirectory.Orgunits.insert(tanevSZEAdatai,'my_customer');
+    
+    var vendegSZE = {
+      name: vendegSZEnev,
+      description: "A vendégtanulók szervezeti egysége. Olyan diákok kerülhetnek ide, akiknek nincs osztályfőnöki órájuk, tehát pl. cserediák programban vesznek részt.",
+      parentOrgUnitPath: "/"+teszt+diakSZEnev+"/"+tanev,
+    }
+    var vendegSZE = AdminDirectory.Orgunits.insert(vendegSZE,'my_customer');
+  }catch(e){  }
+
+
+  // Egy-egy diák adatai sorban egymás alatt helyezkednek el.
+  // A regiTanuloOM-ben mindig az aktuális tanolói OM van.
+  // Ha a következő nem egyezik meg ezzel, akkor új tanuló következik.
+  var regiTanuloOM = "";
+
+  //for(var sor=1; sor<tanulok.length; sor++){
+  for(var sor=1; sor<40; sor++){
+     
+    // A kurzus felvételéhez és beállításához szükséges adatok
+    var tanarNeve=tanulok[sor][6];
+    var n=tanarNevek.indexOf(tanarNeve);
+    var tanarEmail=tanarEmailek[n];
+    var tantargy=tanulok[sor][5];
+    var osztaly_csoport=tanulok[sor][4];
+    
+    // Ha új felhasználót talál a listában, akkor ellenőrzi, hogy létezik-e már az osztályához tartozó szervezeti egység
+    // és csoport. Ha még nem, akkor létrehozza.
+    var tanuloOM=String(tanulok[sor][3]);
+    
+    if(tanuloOM!=regiTanuloOM){
+      regiTanuloOM=tanuloOM;
+
+      // Megkeresi az osztályfőnöki órát
+      // Az ehhez tartozó osztály lesz a szervezeti egység és a csoport neve.
+      var i=sor;
+      while(tanulok[i][5]!="osztályfőnöki" && String(tanulok[i][3])==tanuloOM) i++;
+      if(tanulok[i][3]==tanuloOM){
+        var osztaly=tanulok[i][4];
+        var n=tanarNevek.indexOf(tanulok[i][6]);
+        var osztfoEmail=tanarEmailek[n];
+      }
+      else{
+        osztaly=vendegSZEnev;
+      }
+      
+      // Létrehozza az osztály szervezeti egységét
+      try{
+        var osztalySZEAdatai = {
+          name: osztaly,
+          description: "A "+osztaly+" osztály tanulóinak szervezeti egysége.",
+          parentOrgUnitPath: "/"+teszt+diakSZEnev+"/"+tanev,
+        }
+        var osztalySZE = AdminDirectory.Orgunits.insert(osztalySZEAdatai,'my_customer');
+      }catch(e){  }
+      var tanuloSZE=osztalySZE.orgUnitPath;
+      
+      // Az osztályhoz tartozó csoport meglétét ellenőrzi.
+      // Ha még nincs ilyen, létrehozza és hozzáadja az osztályfőnököt olyan szerepkörben, ahogyan az osztfoSzerepkor változóban definiálva van.
+
+      try{
+        var csopAz = teszt+osztaly+"@"+diakDomain;
+        var osztcsop = {
+          email: csopAz,
+          name: osztaly,
+          description: "A "+osztaly+" osztály csoportja."
+        };
+        osztcsop = AdminDirectory.Groups.insert(osztcsop);
+        
+        if(osztaly!=vendegSZEnev){
+          try{
+            var osztfo = {
+              email: osztfoEmail,
+              role: osztfoSzerepkor
+            };
+            var osztfo=AdminDirectory.Members.insert(osztfo, csopAz);
+          }catch(e){  }
+        }
+      }catch(e){      }
+
+      // Tanuló felhasználónevének előállítása
+      // Első változatban a tanuló neve, csupa kisbetűvel, ékezetek nélkül + az OM azonosító utolsó 4 karaktere
+      // Így nem kell mindenkinek külön kiküldeni a felhasználóneveket, mert az azonos nevűek is különböznek.
+      // Az első bejelentkezéskor a jelszavuk a saját OM azonosítójuk lesz, amit azonnal meg kell változtatni.
+      var tanuloEmail=teszt+nevkonv(tanulok[sor][1]+tanulok[sor][2]+tanuloOM.substr(tanuloOM.length-4, 4))+"@"+diakDomain;
+      // Lehetne még más variációkat is előállítani, s azokat alias-ként hozzáadni, de ez csak ötlet.
+      
+      // Létrehozzuk a tanuló felhasználót
+      try{
+        var tanulo = {
+           primaryEmail: tanuloEmail,
+           name: {
+             givenName: tanulok[sor][2],
+             familyName: tanulok[sor][1],
+             fullName: tanulok[sor][1]+" "+tanulok[sor][2]
+           },
+           password: '12345678',  // tanulok[sor][3]  // tanuló OM azonosítója
+           changePasswordAtNextLogin: true,
+           orgUnitPath: osztalySZE.orgUnitPath  // Bekerül a megfelelő szervezeti egységbe.
+        }
+        tanulo = AdminDirectory.Users.insert(tanulo);
+        
+        // Amikor létrejön a tanuló felhasználó, be is tesszük az osztályának csoportjába.
+        var csoptag = {
+          email: tanulo.primaryEmail,
+          role: 'MEMBER'
+        };
+        csoptag=AdminDirectory.Members.insert(csoptag, csopAz);
+      }catch(e){  }
+    }
+
+    // Classroom kurzusok létrehozása
+
+    var kurzusAz = nevkonv(teszt+tantargy+"_"+osztaly_csoport);
+    try{
+      var kurzus = {
+        id: "d:"+kurzusAz,
+        name: teszt+tantargy+" "+osztaly_csoport,
+        descriptionHeading: "Üdvözöllek a "+osztaly_csoport+" "+tantargy+" kurzusában!",
+        description: "Ez a "+osztaly_csoport+" "+tantargy+" kurzusa, melyet "+tanarNeve+" tart.",
+        ownerId: tanarEmail,
+        courseState: 'PROVISIONED'
+      };
+//      Logger.log('%s. %s, %s, %s)', String(sor), kurzus.name, kurzusAz, kurzus.id);
+      kurzus = Classroom.Courses.create(kurzus);
+    }catch(e){
+      // Ha már létezik a kurzus, akkor meg kell próbálni hozzáadni a tanárt.
+      try{
+        Classroom.Courses.Teachers.create({ userId: tanarEmail, }, "d:"+kurzusAz );
+      }catch(e){  }
+    }
+    // Hozzáadjuk a diákot
+    try{
+      Classroom.Courses.Students.create({ userId: tanuloEmail, }, "d:"+kurzusAz );
+    }catch(e){  }
+  }
+}
+
+
+// A tanárok felvétele a G Suit-ba
+
+function pedagogusokFeltoltese(){
+
+  var pedcsopAz = teszt+"ped@"+suliDomain; // A Pedagogusok csoport azonosítója
+  
+  var tablazat = SpreadsheetApp.getActiveSpreadsheet();
+  tablazat.setActiveSheet(tablazat.getSheetByName("Alkalmazottak lakcímmel"));
+  var alkalmazottakLakcimmelRange = tablazat.getActiveSheet().getRange(1, 1, tablazat.getActiveSheet().getMaxRows(), tablazat.getActiveSheet().getMaxColumns());
+  var alkalmazottakLakcimmel = alkalmazottakLakcimmelRange.getValues();
+  
+  // Létrehozzuk a pedagógusok szervezeti egységét
+  try{
+    var pedagogusokSZE = {
+      name: teszt+pedSZEnev,
+      description: "A tanárokat és titkársági dolgozókat tartalmazó szervezeti egység.",
+      parentOrgUnitPath: "/"
+    }
+    pedagogusokSZE = AdminDirectory.Orgunits.insert(pedagogusokSZE,'my_customer');
+  }catch(e){ Logger.log('%s', e); }
+  
+  // Létrehozzuk a pedagógusok csoportját
+  try{
+    var pedCsop = {
+      email: pedcsopAz,
+      name: teszt+pedSZEnev,
+      description: "A pedagógusok és titkársági dolgozók csoportja."
+    };
+    pedCsop = AdminDirectory.Groups.insert(pedCsop);
+  }catch(e){ Logger.log('%s', e); }
+
+  tablazat.setActiveSheet(tablazat.getSheetByName("Alkalmazottak"));
+  var alkalmazottakRange = tablazat.getActiveSheet().getRange(1, 1, tablazat.getActiveSheet().getMaxRows(), tablazat.getActiveSheet().getMaxColumns());
+  var alkalmazottak = alkalmazottakRange.getValues();
+  
+  for(var sor=1; sor<alkalmazottak.length; sor++){
+    if(alkalmazottak[sor][5]){
+       var tanarEmail = teszt+alkalmazottak[sor][5]+"@"+suliDomain;
+       
+       // Létrehozzuk a felhasználót
+       try{
+         var tanar = {
+           primaryEmail: tanarEmail,
+           name: {
+             givenName: alkalmazottakLakcimmel[sor][2],
+             familyName: alkalmazottakLakcimmel[sor][1],
+             fullName: alkalmazottakLakcimmel[sor][0]+" "+alkalmazottak[sor][0]
+           },
+           password: 'Csokonai4032',
+           orgUnitPath: "/"+teszt+pedSZEnev
+         }
+         tanar = AdminDirectory.Users.insert(tanar);
+       }catch(e){ Logger.log('%s', e); }
+
+       // Betesszük a Pedagogusok és a Tanterem-tanárok csoportba is.
+       var tag = {
+          email: tanarEmail,
+          role: 'MEMBER'
+       };
+
+       try{
+         var csoptag = AdminDirectory.Members.insert(tag, pedcsopAz);
+       }catch(e){ Logger.log('%s', e); }
+       
+       // A tanárokat betesszük a tanterem_tanarok csoportba is, hogy létre tudjanak hozni kurzusokat.
+       // Ezt a csoportot automatikusan létrehozza a G Suit. Nálam azonban érdekes módon nem látszott, amíg bele nem tettem egy felhasználót.
+       try{
+         csoptag = AdminDirectory.Members.insert(tag, "tanterem_tanarok@"+suliDomain);
+       }catch(e){ Logger.log('%s', e); }
+
+    }
+  }
+  
+}
+
+
+// Tesztadatok törlése
+// Ez a függvény törli az összes "teszt" előtaggal kezdődő objektumot és alobjektumaikat (felhasználók, csoportok, szervezeti egységek és kurzusok)
+// Megfelelő átalakítással töröltethető vel az egész G Suit adatbázis is, de ehhez sok helyen módosítani kell a függvényt.
+// Ezt szándékosan nem könnyítettem meg. Csak az nyúljon hozzá aki tudja mit csinál!!!
+
+function teszt_torlese()
+{
+  
+  // Felhasználók törlése
+  var felhasznalok = AdminDirectory.Users.list({domain:suliDomain}).users;
+  // teszt -tel kezdődő nevű felhasznűálók törlése
+  for (var i=0; i<felhasznalok.length; i++){
+    if(felhasznalok[i].primaryEmail.indexOf('teszt')==0){
+      var x = AdminDirectory.Users.remove(felhasznalok[i].primaryEmail);
+    }
+  }
+  
+  // Csoportok törlése
+  var lista = AdminDirectory.Groups.list({ domain: suliDomain });
+  var csoportok = lista.groups;
+    if (csoportok) {
+      for (var i = 0; i < csoportok.length; i++) {
+        if(csoportok[i].name.indexOf("teszt")==0){
+          AdminDirectory.Groups.remove(csoportok[i].email);
+        }
+      }
+    }
+
+
+  // Szervezeti egységek törlése
+
+  // Szükség lesz a G Suit admin customerId-jére. A remove metódus nem működik a 'my_customer' paraméterrel!
+  // Ezt jó lenne megérteni miért...
+  var admin = AdminDirectory.Users.get("admin@csokonai-debr.sulinet.hu");
+  
+  // Megnézi, hogy létezik-e a tesztDiakok szervezeti egység
+  try{
+    var diakokSZE = AdminDirectory.Orgunits.get('my_customer', "teszt"+diakSZEnev);
+  }catch(e){  }
+  // Ha igen, akkor mehetünk tovább
+  if(diakokSZE){
+    // Lekérjük a tesztDiakok-ban lévő tanévek listáját
+    var tanevekLista = AdminDirectory.Orgunits.list('my_customer', {
+      orgUnitPath: '/teszt'+diakSZEnev,
+      type: 'children'
+    });
+    var tanevek=tanevekLista.organizationUnits;
+    // Végigmegyünk a tanéveken
+    for(var i=0; i<tanevek.length; i++){
+      // Lekérjük tanévenként az osztályok listáját.
+      var osztLista=AdminDirectory.Orgunits.list('my_customer', {
+        orgUnitPath: '/teszt'+diakSZEnev+'/'+tanevek[i].name,
+        type: 'children'
+      });
+      var osztalyok=osztLista.organizationUnits;
+      // Végigmegyünk az osztályokon és töröljük őket
+      for(var j=0; j<osztalyok.length; j++){
+        var x = AdminDirectory.Orgunits.remove(admin.customerId, osztalyok[j].orgUnitId);
+      }
+      // Töröljük azt a tanévet, amelyiknek az osztályain végigmentünk
+      var x = AdminDirectory.Orgunits.remove(admin.customerId, tanevek[i].orgUnitId);
+    }
+    // Végül a tesztDiakok szervezeti egységet is töröljük
+    var x = AdminDirectory.Orgunits.remove(admin.customerId, diakokSZE.orgUnitId);
+  }
+
+  // Kurzusok törlése
+  var kurzusok = Classroom.Courses.list().courses;
+  if(kurzusok){
+    for(var i=0; i<kurzusok.length; i++){
+      if(kurzusok[i].name.indexOf("teszt")==0){
+         Classroom.Courses.remove(kurzusok[i].id);
+      }
+    }
+  }
+}
+
+
+//Csak egy tesztprogram, a különböző funkciók végrehajtási időtartamának mérésére
+// Az eltelt időt a logbejegyzések időbélyegeinek különbsége adja
+function idofaktor()
+{
+  var tablazat = SpreadsheetApp.getActiveSpreadsheet();
+  
+  tablazat.setActiveSheet(tablazat.getSheetByName("Tanulók tantárgyai és pedagógus"));
+  var tanulokRange = tablazat.getActiveSheet().getRange(1, 1, tablazat.getActiveSheet().getMaxRows(), tablazat.getActiveSheet().getMaxColumns()+3);
+  var tanulok = tanulokRange.getValues();
+  Logger.log('Kezdete');
+  var tag = {
+    email: "felhasználó e-mail címe",
+    role: 'MEMBER'
+  };
+  var pedcsopAz = teszt+"ped@"+suliDomain; // A Pedagogusok csoport azonosítója
+  var csoptag;
+  for(var sor=1; sor<1000; sor++){
+    try{
+      //csoptag = AdminDirectory.Members.insert(tag, pedcsopAz);
+      Classroom.Courses.Students.create({ userId: tag.email, }, "144694998800" );
+    }catch(e){  }
+  }
+  Logger.log('Vege');
+}
